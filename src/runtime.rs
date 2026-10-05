@@ -70,6 +70,31 @@ fn session(path: &std::path::Path, backend: Backend, config: &Config) -> Result<
     }
     Ok(builder.commit_from_file(path)?)
 }
+
+// Some Windows adapters accept DirectML sessions but fail on the first inference.
+// Exercise every model before reporting the backend as usable. Keep this limited
+// to DirectML: other platforms retain their existing initialization behavior.
+#[cfg(all(target_os = "windows", feature = "directml"))]
+fn probe_directml(session: &mut Session, width: usize, height: usize) -> Result<()> {
+    use ndarray::{Array4, arr2};
+    use ort::value::Tensor;
+
+    if session.inputs.len() != 2 {
+        return Err(crate::Error::ModelContract(
+            "DirectML probe requires two model inputs".into(),
+        ));
+    }
+    let names = [
+        session.inputs[0].name.clone(),
+        session.inputs[1].name.clone(),
+    ];
+    session.run(ort::inputs![
+        names[0].as_str() => Tensor::from_array(Array4::<f32>::zeros((1, 3, height, width)))?,
+        names[1].as_str() => Tensor::from_array(arr2(&[[width as i64, height as i64]]))?
+    ])?;
+    Ok(())
+}
+
 pub(crate) fn load(
     models: &ModelPaths,
     config: &Config,
@@ -99,11 +124,30 @@ pub(crate) fn load(
     let mut reasons = Vec::new();
     for backend in candidates {
         let attempt = (|| {
-            Ok((
+            let sessions = (
                 session(&models.detection, backend, config)?,
                 session(&models.recognition, backend, config)?,
                 session(&models.vertical_recognition, backend, config)?,
-            ))
+            );
+            #[cfg(all(target_os = "windows", feature = "directml"))]
+            let sessions = {
+                let (mut det, mut rec, mut vert) = sessions;
+                if backend == Backend::DirectMl {
+                    for (name, model, width, height) in [
+                        ("detection", &mut det, 960, 544),
+                        ("recognition", &mut rec, 960, 32),
+                        ("vertical recognition", &mut vert, 32, 480),
+                    ] {
+                        probe_directml(model, width, height).map_err(|err| {
+                            crate::Error::ModelContract(format!(
+                                "DirectML {name} inference probe failed: {err}"
+                            ))
+                        })?;
+                    }
+                }
+                (det, rec, vert)
+            };
+            Ok(sessions)
         })();
         match attempt {
             Ok((det, rec, vert)) => {

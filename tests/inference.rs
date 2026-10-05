@@ -1,5 +1,53 @@
 //! Opt-in real model validation: MEIKIOCR_MODEL_DIR + MEIKIOCR_TEST_IMAGE + ORT_DYLIB_PATH.
 use meikiocr::{Backend, Config, MeikiOcr, ModelPaths, OcrOptions};
+
+#[cfg(all(target_os = "windows", feature = "directml"))]
+#[test]
+#[ignore = "requires downloaded models and DirectML ONNX Runtime"]
+fn windows_auto_backend_runs_real_ocr() {
+    let models = ModelPaths::from_dir(std::env::var("MEIKIOCR_MODEL_DIR").unwrap());
+    let image = image::open(std::env::var("MEIKIOCR_TEST_IMAGE").unwrap())
+        .unwrap()
+        .to_rgb8();
+    let mut automatic = MeikiOcr::new(models.clone()).unwrap();
+    let actual = automatic.ocr(&image, OcrOptions::default()).unwrap();
+    assert!(actual.iter().any(|line| !line.text.is_empty()));
+
+    if automatic.backend_info().selected == Backend::Cpu {
+        let reason = automatic
+            .backend_info()
+            .fallback_reasons
+            .iter()
+            .find(|reason| reason.starts_with("DirectMl:"))
+            .expect("CPU selection must explain the DirectML failure");
+        let explicit = MeikiOcr::with_config(
+            models.clone(),
+            Config {
+                backend: Backend::DirectMl,
+                ..Default::default()
+            },
+        );
+        let error = explicit
+            .err()
+            .expect("explicit DirectML must not silently fall back");
+        if reason.contains("inference probe failed") {
+            assert!(error.to_string().contains("inference probe failed"));
+        }
+    }
+    let mut cpu = MeikiOcr::with_config(
+        models,
+        Config {
+            backend: Backend::Cpu,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let expected = cpu.ocr(&image, OcrOptions::default()).unwrap();
+    assert_eq!(
+        actual.iter().map(|line| &line.text).collect::<Vec<_>>(),
+        expected.iter().map(|line| &line.text).collect::<Vec<_>>()
+    );
+}
 #[test]
 #[ignore = "requires downloaded models and ONNX Runtime"]
 fn real_models_and_batching() {
