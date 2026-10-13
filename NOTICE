@@ -1,4 +1,9 @@
-Rust port of meikiocr (https://github.com/rtr46/meikiocr), Apache-2.0.
-Based on upstream commit 52aa607ecdc1038c7bf390f37cd9a8b306e8a08a.
-The preprocessing and postprocessing algorithms were adapted from meikiocr/ocr.py.
-Model weights are distributed separately by rtr46 on Hugging Face.
+meikiocr (Rust)
+
+A Rust port of meikiocr (https://github.com/rtr46/meikiocr), Apache-2.0,
+by rtr46. Based on upstream commit 52aa607ecdc1038c7bf390f37cd9a8b306e8a08a.
+The preprocessing and postprocessing algorithms were adapted from
+meikiocr/ocr.py.
+
+Model weights are not part of this repository. They are distributed
+separately by rtr46 on Hugging Face under LGPL-3.0.
