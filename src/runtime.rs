@@ -68,7 +68,13 @@ fn session(path: &std::path::Path, backend: Backend, config: &Config) -> Result<
     if let Some(ep) = provider(backend)? {
         builder = builder.with_execution_providers([ep])?;
     }
-    Ok(builder.commit_from_file(path)?)
+    if backend == Backend::DirectMl {
+        let bytes = std::fs::read(path).map_err(|e| crate::Error::InvalidInput(e.to_string()))?;
+        let model = crate::onnx::directml_model(&bytes)?;
+        Ok(builder.commit_from_memory(&model)?)
+    } else {
+        Ok(builder.commit_from_file(path)?)
+    }
 }
 
 // Some Windows adapters accept DirectML sessions but fail on the first inference.

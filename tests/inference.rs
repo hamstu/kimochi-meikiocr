@@ -3,6 +3,76 @@ use meikiocr::{Backend, Config, MeikiOcr, ModelPaths, OcrOptions};
 
 #[cfg(all(target_os = "windows", feature = "directml"))]
 #[test]
+#[ignore = "requires downloaded models, text fixture and DirectML ONNX Runtime"]
+fn windows_directml_matches_cpu_without_fallback() {
+    let models = ModelPaths::from_dir(std::env::var("MEIKIOCR_MODEL_DIR").unwrap());
+    let source = image::open(std::env::var("MEIKIOCR_TEST_IMAGE").unwrap())
+        .unwrap()
+        .to_rgb8();
+    let mut cpu = MeikiOcr::with_config(
+        models.clone(),
+        Config {
+            backend: Backend::Cpu,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let mut dml = MeikiOcr::with_config(
+        models,
+        Config {
+            backend: Backend::DirectMl,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(dml.backend_info().selected, Backend::DirectMl);
+    for image in [
+        source.clone(),
+        image::imageops::resize(
+            &source,
+            source.width() * 2,
+            source.height() * 2,
+            image::imageops::FilterType::Triangle,
+        ),
+    ] {
+        let expected = cpu.detect(&image, 0.5).unwrap();
+        let actual = dml.detect(&image, 0.5).unwrap();
+        assert!(!actual.is_empty());
+        assert_eq!(expected.len(), actual.len());
+        for (a, b) in actual.iter().zip(&expected) {
+            assert!((a.confidence - b.confidence).abs() < 0.001);
+            assert!(a.bbox.iter().zip(b.bbox).all(|(a, b)| a.abs_diff(b) <= 2));
+        }
+        let expected = cpu.ocr(&image, OcrOptions::default()).unwrap();
+        let actual = dml.ocr(&image, OcrOptions::default()).unwrap();
+        assert!(actual.iter().all(|line| !line.text.is_empty()));
+        assert_eq!(
+            actual.iter().map(|l| &l.text).collect::<Vec<_>>(),
+            expected.iter().map(|l| &l.text).collect::<Vec<_>>()
+        );
+        println!(
+            "DirectML matches CPU: {}x{}, {} lines",
+            image.width(),
+            image.height(),
+            actual.len()
+        );
+    }
+    let crops = [
+        image::RgbImage::new(32, 480),
+        image::RgbImage::new(32, 1000),
+        image::RgbImage::new(2000, 32),
+    ];
+    let expected = cpu.recognize(&crops, OcrOptions::default()).unwrap();
+    let actual = dml.recognize(&crops, OcrOptions::default()).unwrap();
+    assert_eq!(
+        actual.iter().map(|l| &l.text).collect::<Vec<_>>(),
+        expected.iter().map(|l| &l.text).collect::<Vec<_>>()
+    );
+    assert!(actual[0].is_vertical && actual[1].is_vertical && !actual[2].is_vertical);
+}
+
+#[cfg(all(target_os = "windows", feature = "directml"))]
+#[test]
 #[ignore = "requires downloaded models and DirectML ONNX Runtime"]
 fn windows_auto_backend_runs_real_ocr() {
     let models = ModelPaths::from_dir(std::env::var("MEIKIOCR_MODEL_DIR").unwrap());

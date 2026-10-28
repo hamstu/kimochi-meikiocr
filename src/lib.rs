@@ -1,5 +1,6 @@
 //! Local Japanese OCR. Load models once, then reuse [`MeikiOcr`] on a worker thread.
 //! Images use RGB channel order; the model's BGR conversion is handled internally.
+mod onnx;
 mod pipeline;
 mod runtime;
 use image::RgbImage;
